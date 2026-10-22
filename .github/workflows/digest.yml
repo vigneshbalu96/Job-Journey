@@ -1,6 +1,6 @@
 # Hourly trigger for the daily digest. Vercel Hobby only allows once-a-day
 # crons, so GitHub Actions calls the endpoint instead. Needs repo secrets
-# APP_URL (e.g. https://job-journey.vercel.app) and CRON_SECRET (same as Vercel).
+# APP_URL (e.g. https://job-journey-nine.vercel.app) and CRON_SECRET (same as Vercel).
 name: digest
 
 on:
@@ -17,4 +17,5 @@ jobs:
         env:
           APP_URL: ${{ secrets.APP_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        run: curl -fsS --max-time 90 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/digest"
+        run: |
+          curl -fsS --max-time 90 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/digest"
