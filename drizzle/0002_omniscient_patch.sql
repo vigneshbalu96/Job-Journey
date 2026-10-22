@@ -1,0 +1,1 @@
+ALTER TABLE "profiles" ADD COLUMN "weekly_target" smallint DEFAULT 5 NOT NULL;

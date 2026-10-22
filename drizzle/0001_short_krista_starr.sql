@@ -1,0 +1,1 @@
+ALTER TYPE "public"."task_kind" ADD VALUE 'apply' BEFORE 'custom';
