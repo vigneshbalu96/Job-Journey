@@ -2,7 +2,7 @@
 
 A multi-user command centre for a job search: pipeline kanban with full stage history, companies and contacts, prep notes and a question bank, a journey timeline with funnel metrics, resume versions, follow-up reminders with a daily digest, offer comparison, a job clipper, and AI assistance for the repetitive parts.
 
-Stack: Next.js 15 (App Router), TypeScript, Drizzle ORM on Supabase Postgres, Supabase Auth, Tailwind v4 + shadcn/ui, Vercel + Vercel Cron, Resend, Anthropic API.
+Stack: Next.js 15 (App Router), TypeScript, Drizzle ORM on Supabase Postgres, Supabase Auth, Tailwind v4 + shadcn/ui, Vercel + GitHub Actions cron, Resend, Anthropic API.
 
 Two rules hold everywhere: **deletes are soft** (`deleted_at`) and **every mutation writes an `audit_log` row**. Server actions go through `withUser()` and the helpers in `src/lib/repo.ts`; a unit test fails the build if a file selects from the database without `scoped()` or issues a hard `DELETE`.
 
@@ -98,17 +98,31 @@ Settings has a weekly applications target. Today shows a ring (applications move
 ## 5. Production notes
 - **Email templates**: the default Supabase templates use `{{ .ConfirmationURL }}`, which goes through `/auth/callback` (PKCE, same browser). For links that must work on another device, point the template at `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink`.
 - **Storage**: run `pnpm storage:setup` once per project to create the private `documents` bucket.
-- **Cron**: `vercel.json` schedules `/api/cron/digest` hourly; set `CRON_SECRET` in Vercel. The route picks users whose local hour equals their digest hour and never sends twice for one day.
+- **Cron**: Vercel Hobby only allows daily crons, so `.github/workflows/digest.yml` calls `/api/cron/digest` hourly. Set `CRON_SECRET` in Vercel and the same value plus `APP_URL` as GitHub repo secrets. The route picks users whose local hour has reached their digest hour and never sends twice for one day, so a late run still delivers. The hourly hit also keeps a free Supabase project from pausing.
 - **AI**: set `ANTHROPIC_API_KEY`. Default model is `claude-sonnet-5-5`; Opus is selectable per run. Every call is logged in `ai_runs` with cost; identical inputs are served from that log. `AI_DAILY_RUN_CAP` (default 60) bounds spend.
 - **Clipper**: the bookmarklet is on the Clip page. It sends the rendered page text, which is the only reliable path for LinkedIn/Workday.
 
-## 6. Phases
+## 6. Free deploy (personal use)
+Vercel Hobby + Supabase Free + Resend Free; AI stays off until `ANTHROPIC_API_KEY` is set.
+
+1. **Supabase**: new project in Mumbai (ap-south-1). Auth → URL configuration: Site URL `https://<app>.vercel.app`, redirect URLs `…/auth/callback` and `…/auth/confirm`. Auth → Email templates → Magic Link: link to `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink`. The built-in mailer only sends to project team members, so sign in with your Supabase account email.
+2. **Schema and bucket** from your machine (command-line values win over `.env.local`):
+   ```bash
+   DIRECT_DATABASE_URL='<session pooler, 5432>' pnpm db:migrate
+   NEXT_PUBLIC_SUPABASE_URL='https://<ref>.supabase.co' SUPABASE_SERVICE_ROLE_KEY='<service role>' pnpm storage:setup
+   ```
+3. **Resend**: create an API key. Without a domain it sends only from `onboarding@resend.dev` to your Resend signup email.
+4. **Vercel**: import the repo and set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL` (transaction pooler, 6543), `NEXT_PUBLIC_APP_URL`, `CRON_SECRET` (`openssl rand -hex 32`), `RESEND_API_KEY`, `DIGEST_FROM_EMAIL="Job Journey <onboarding@resend.dev>"`. Functions run in `bom1` (see `vercel.json`).
+5. **GitHub**: repo secrets `APP_URL` and `CRON_SECRET`; run the `digest` workflow once from the Actions tab.
+6. Sign in once, then turn off Supabase Auth → "Allow new users to sign up".
+
+## 7. Phases
 See `docs/PLAN.md` for the full plan. All eight phases are implemented:
 - [x] Phase 0: scaffold, Supabase Auth, scoping + audit helpers, migrations
 - [x] Phase 1: companies, roles, applications, kanban, stage history, follow-up tasks
 - [x] Phase 2: contacts, interactions, notes, questions, documents with signed uploads
 - [x] Phase 3: journey timeline + funnel / weekly / time-in-stage metrics
-- [x] Phase 4: Today view, settings, hourly digest (Resend + Vercel Cron)
+- [x] Phase 4: Today view, settings, hourly digest (Resend + GitHub Actions cron)
 - [x] Phase 5: job clipper (JSON-LD → Readability → paste) + bookmarklet
 - [x] Phase 6: AI assist (JD parse, fit score, resume bullets, cover letter, likely questions, follow-up email)
 - [x] Phase 7: offers with side-by-side comparison and accept/decline flow

@@ -11,9 +11,10 @@ import { renderDigest } from "./render";
 export type DigestRunResult = { considered: number; sent: number; skipped: number; errors: string[] };
 
 /**
- * Runs hourly. For each user whose local hour matches their digestHour and who
- * has not been sent today's digest, build Today, render, send, and record.
- * The unique (user_id, sent_for_date) index makes retries safe.
+ * Runs hourly. For each user whose local hour has reached their digestHour and
+ * who has not been sent today's digest, build Today, render, send, and record.
+ * ">=" rather than "==" so a late or skipped cron run still sends that day;
+ * the unique (user_id, sent_for_date) index keeps it to one send per day.
  */
 export async function runDigest(now = new Date(), opts: { dryRun?: boolean } = {}): Promise<DigestRunResult> {
   const result: DigestRunResult = { considered: 0, sent: 0, skipped: 0, errors: [] };
@@ -22,7 +23,7 @@ export async function runDigest(now = new Date(), opts: { dryRun?: boolean } = {
   const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
   for (const u of users) {
-    if (localHour(now, u.timezone) !== u.digestHour) continue;
+    if (localHour(now, u.timezone) < u.digestHour) continue;
     result.considered++;
     const dateStr = localDateString(now, u.timezone);
     const already = await db

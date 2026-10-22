@@ -46,3 +46,8 @@ next-env.d.ts
 # drizzle journal is committed; snapshots too
 /test-results
 /playwright-report
+
+# never commit keys
+*sshkey*
+id_rsa*
+id_ed25519*
