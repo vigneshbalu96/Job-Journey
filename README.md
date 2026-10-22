@@ -105,14 +105,14 @@ Settings has a weekly applications target. Today shows a ring (applications move
 ## 6. Free deploy (personal use)
 Vercel Hobby + Supabase Free + Resend Free; AI stays off until `ANTHROPIC_API_KEY` is set.
 
-1. **Supabase**: new project in Mumbai (ap-south-1). Auth → URL configuration: Site URL `https://<app>.vercel.app`, redirect URLs `…/auth/callback` and `…/auth/confirm`. Auth → Email templates → Magic Link: link to `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink`. The built-in mailer only sends to project team members, so sign in with your Supabase account email.
+1. **Supabase**: new project (this one is in Sydney, ap-southeast-2). Auth → URL configuration: Site URL `https://<app>.vercel.app`, redirect URLs `…/auth/callback` and `…/auth/confirm`. Auth → Email templates → Magic Link: link to `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink`. The built-in mailer only sends to project team members, so sign in with your Supabase account email.
 2. **Schema and bucket** from your machine (command-line values win over `.env.local`):
    ```bash
    DIRECT_DATABASE_URL='<session pooler, 5432>' pnpm db:migrate
    NEXT_PUBLIC_SUPABASE_URL='https://<ref>.supabase.co' SUPABASE_SERVICE_ROLE_KEY='<service role>' pnpm storage:setup
    ```
 3. **Resend**: create an API key. Without a domain it sends only from `onboarding@resend.dev` to your Resend signup email.
-4. **Vercel**: import the repo and set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL` (transaction pooler, 6543), `NEXT_PUBLIC_APP_URL`, `CRON_SECRET` (`openssl rand -hex 32`), `RESEND_API_KEY`, `DIGEST_FROM_EMAIL="Job Journey <onboarding@resend.dev>"`. Functions run in `bom1` (see `vercel.json`).
+4. **Vercel**: import the repo and set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL` (transaction pooler, 6543), `NEXT_PUBLIC_APP_URL`, `CRON_SECRET` (`openssl rand -hex 32`), `RESEND_API_KEY`, `DIGEST_FROM_EMAIL="Job Journey <onboarding@resend.dev>"`. Functions run in `syd1` (see `vercel.json`); keep it next to the Supabase region.
 5. **GitHub**: repo secrets `APP_URL` and `CRON_SECRET`; run the `digest` workflow once from the Actions tab.
 6. Sign in once, then turn off Supabase Auth → "Allow new users to sign up".
 
