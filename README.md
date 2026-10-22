@@ -1,36 +1,116 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Job Journey
 
-## Getting Started
+A multi-user command centre for a job search: pipeline kanban with full stage history, companies and contacts, prep notes and a question bank, a journey timeline with funnel metrics, resume versions, follow-up reminders with a daily digest, offer comparison, a job clipper, and AI assistance for the repetitive parts.
 
-First, run the development server:
+Stack: Next.js 15 (App Router), TypeScript, Drizzle ORM on Supabase Postgres, Supabase Auth, Tailwind v4 + shadcn/ui, Vercel + Vercel Cron, Resend, Anthropic API.
 
+Two rules hold everywhere: **deletes are soft** (`deleted_at`) and **every mutation writes an `audit_log` row**. Server actions go through `withUser()` and the helpers in `src/lib/repo.ts`; a unit test fails the build if a file selects from the database without `scoped()` or issues a hard `DELETE`.
+
+## 1. One-time setup
+
+### Supabase
+1. Create a project at supabase.com (region: ap-south-1 if you are in India).
+2. **Authentication → Providers**: enable **Email** (magic link) and **Google**.
+   - For Google, create OAuth credentials in Google Cloud Console; the authorised redirect URI is `https://<project-ref>.supabase.co/auth/v1/callback`.
+3. **Authentication → URL configuration**: set Site URL to `http://localhost:3000` for now, and add `http://localhost:3000/auth/callback` and your Vercel URL + `/auth/callback` to Redirect URLs.
+4. **Settings → API**: copy the project URL, anon key and service-role key.
+5. **Settings → Database**: copy both connection strings (transaction pooler on 6543, session pooler on 5432).
+
+### Local env
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local
+# fill in the Supabase values; leave Resend / Anthropic empty until phases 4 and 5
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Database
+```bash
+pnpm db:migrate     # applies ./drizzle/*.sql using DIRECT_DATABASE_URL
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Run
+```bash
+pnpm dev            # http://localhost:3000 → redirected to /login
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 2. Scripts
+| Script | What it does |
+|---|---|
+| `pnpm dev` | Dev server with Turbopack |
+| `pnpm typecheck` | `tsc --noEmit` |
+| `pnpm lint` | ESLint |
+| `pnpm test` | Vitest: pure helpers plus repo tests against an in-process Postgres (pglite) migrated with the real SQL |
+| `pnpm db:generate` | Generate a migration from `src/db/schema.ts` |
+| `pnpm db:migrate` | Apply migrations |
+| `pnpm db:studio` | Drizzle Studio |
+| `pnpm build` | Production build |
 
-## Learn More
+## 3. Layout
+```
+src/app/(auth)/login          magic link + Google
+src/app/auth/callback         code exchange
+src/app/(app)/*               authenticated pages (today, pipeline, companies, …)
+src/actions/*                 server actions: zod-parsed, user-scoped, audited
+src/lib/auth.ts               requireUser / withUser (Supabase SSR)
+src/lib/repo.ts               scoped / createRow / updateRow / softDeleteRow / audit
+src/lib/stages.ts             stage transition rules and follow-up scheduling
+src/lib/queries/*             read queries (always via scoped())
+src/schemas/*                 zod schemas shared by forms, actions and AI output
+src/db/schema.ts              Drizzle schema; drizzle/ holds generated SQL
+```
 
-To learn more about Next.js, take a look at the following resources:
+## 4. Local development with a full Supabase stack
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Docker is enough to run Auth, Postgres, Storage and a local mailbox:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+pnpm supabase start -x realtime,imgproxy,studio,edge-runtime,logflare,vector,postgres-meta,supavisor
+# copy the printed ANON_KEY / SERVICE_ROLE_KEY / DB_URL into .env.local (see .env.example)
+pnpm db:migrate
+pnpm dev
+```
 
-## Deploy on Vercel
+Magic-link emails land at http://127.0.0.1:54324 (Mailpit); nothing reaches a real inbox. The Google button is hidden unless `NEXT_PUBLIC_AUTH_GOOGLE=1`; to use it locally, follow the commented block at the end of `supabase/config.toml`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Demo data for the journey page: sign in once, then `pnpm seed you@example.com`. A ready-made local demo account `vignesh.demo@example.com` is already seeded (request a magic link for it on the login page and read it in Mailpit).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+End-to-end tests (Playwright) run against this stack: `pnpm e2e`. They sign in through the admin API, so no mailbox is involved.
+
+### Look and feel
+Two designed themes share one token set in `src/app/globals.css`: **iOS glass** (light: frosted white surfaces over a cool wash, iOS blue accent) and **aurora** (dark: near-black with a slow violet/pink/teal mesh, glowing stage chips). Everything is driven by CSS variables (`--stage-*`, `--chart-*`, `--glass*`, `--radius-card`, `--shadow-*`), exposed as Tailwind utilities (`bg-stage-offer-soft`, `rounded-card`, `shadow-float`, `glass`, `text-display`). Motion uses `motion` with spring presets in `src/lib/motion.ts`; the OS reduced-motion setting disables route transitions, the aurora, number tickers and confetti. Shared pieces live in `src/components/shell/` (PageHeader, StatTile, SegmentedControl, BottomTabBar, AuroraBackground, GlassCard) and `src/components/ui/` (number-ticker, shimmer-button). 21st.dev components can be swapped in with `pnpm dlx shadcn@latest add "https://21st.dev/r/<author>/<slug>?api_key=$API_KEY_21ST"` if you create a key there (free tier: 2 installs/day).
+
+### 21st.dev components
+Set `API_KEY_21ST` in `.env.local` (key from https://21st.dev/mcp; free tier allows 2 installs per day), then from the repo:
+```bash
+pnpm dlx shadcn@latest add "https://21st.dev/r/<author>/<slug>?api_key=$API_KEY_21ST"
+```
+Every installed file is adapted before use: colours → our tokens, `framer-motion` → `motion/react`, motion gated by `useReducedMotion`. All five slots currently run on in-house components with the same props, so any can be swapped for the registry version later: `ProgressRing` ↔ `diceui/circular-progress`, `OrbitalTimeline` ↔ `jatin-yadav05/radial-orbital-timeline`, `ui/spotlight-card` ↔ `jahed/spotlight-card`, `ui/shine-border` ↔ `dillionverma/shine-border`, `offers/Podium` ↔ `trophyso/leaderboard-podium`.
+
+### Progress and streaks
+Settings has a weekly applications target. Today shows a ring (applications moved to Applied since Monday, in your timezone) and a day streak (any stage move, conversation or completed task; yesterday keeps it alive). The digest repeats the line. Logic in `src/lib/streak.ts` and `src/lib/queries/progress.ts`.
+
+### Day-to-day
+- Board and table views have a filter box; closed applications are collapsed behind a toggle (and remain a drop target).
+- Every role can be edited from its application page, including pasting the JD later.
+- Theme toggle (light / dark / system) sits in the sidebar footer.
+- Tasks per application: each application page has a Tasks tab. Moving to Applied creates a three-item apply-day checklist (kind `apply`); moving to Interview with a date creates the interview task; every stage move schedules the next follow-up and retires the previous one; closing retires everything.
+- A screenshot sweep for visual review: `SHOTS_DIR=/tmp/shots SHOTS_EMAIL=you@example.com pnpm exec playwright test screenshots`.
+
+## 5. Production notes
+- **Email templates**: the default Supabase templates use `{{ .ConfirmationURL }}`, which goes through `/auth/callback` (PKCE, same browser). For links that must work on another device, point the template at `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink`.
+- **Storage**: run `pnpm storage:setup` once per project to create the private `documents` bucket.
+- **Cron**: `vercel.json` schedules `/api/cron/digest` hourly; set `CRON_SECRET` in Vercel. The route picks users whose local hour equals their digest hour and never sends twice for one day.
+- **AI**: set `ANTHROPIC_API_KEY`. Default model is `claude-sonnet-5-5`; Opus is selectable per run. Every call is logged in `ai_runs` with cost; identical inputs are served from that log. `AI_DAILY_RUN_CAP` (default 60) bounds spend.
+- **Clipper**: the bookmarklet is on the Clip page. It sends the rendered page text, which is the only reliable path for LinkedIn/Workday.
+
+## 6. Phases
+See `docs/PLAN.md` for the full plan. All eight phases are implemented:
+- [x] Phase 0: scaffold, Supabase Auth, scoping + audit helpers, migrations
+- [x] Phase 1: companies, roles, applications, kanban, stage history, follow-up tasks
+- [x] Phase 2: contacts, interactions, notes, questions, documents with signed uploads
+- [x] Phase 3: journey timeline + funnel / weekly / time-in-stage metrics
+- [x] Phase 4: Today view, settings, hourly digest (Resend + Vercel Cron)
+- [x] Phase 5: job clipper (JSON-LD → Readability → paste) + bookmarklet
+- [x] Phase 6: AI assist (JD parse, fit score, resume bullets, cover letter, likely questions, follow-up email)
+- [x] Phase 7: offers with side-by-side comparison and accept/decline flow
+
+Not yet verified against real services: Google OAuth, Resend delivery, and the Anthropic calls (all need keys you hold).
