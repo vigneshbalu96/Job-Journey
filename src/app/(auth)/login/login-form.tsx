@@ -9,10 +9,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
+
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
 export function LoginForm({ local, googleEnabled }: { local: boolean; googleEnabled: boolean }) {
   const params = useSearchParams();
-  const next = params.get("next") ?? "/today";
+  const rawNext = params.get("next");
+  // Same rule as safeNext() in the auth routes: same-site paths only.
+  const next = rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/today";
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(params.get("error") === "auth" ? "Sign-in link was invalid or expired." : null);
@@ -21,6 +26,7 @@ export function LoginForm({ local, googleEnabled }: { local: boolean; googleEnab
   const redirectTo = () =>
     `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
 
+  // Redirect flow, used when no client ID is configured (e.g. the local stack).
   const signInWithGoogle = () =>
     start(async () => {
       setError(null);
@@ -55,9 +61,13 @@ export function LoginForm({ local, googleEnabled }: { local: boolean; googleEnab
       <CardContent className="space-y-4">
         {googleEnabled && (
           <>
-            <Button type="button" variant="outline" className="w-full" onClick={signInWithGoogle} disabled={pending}>
-              <GoogleMark /> Continue with Google
-            </Button>
+            {GOOGLE_CLIENT_ID ? (
+              <GoogleSignInButton clientId={GOOGLE_CLIENT_ID} next={next} onError={setError} />
+            ) : (
+              <Button type="button" variant="outline" className="w-full" onClick={signInWithGoogle} disabled={pending}>
+                <GoogleMark /> Continue with Google
+              </Button>
+            )}
             <div className="relative text-center text-xs text-muted-foreground">
               <span className="bg-card px-2 relative z-10">or</span>
               <span className="absolute inset-x-0 top-1/2 h-px bg-border" />
@@ -67,7 +77,7 @@ export function LoginForm({ local, googleEnabled }: { local: boolean; googleEnab
         {sent ? (
           <div className="space-y-2 text-sm">
             <p>
-              Check <strong>{email}</strong> for a sign-in link. Open it in this browser.
+              Check <strong>{email}</strong> for a sign-in link.
             </p>
             {local && (
               <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
