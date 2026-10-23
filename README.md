@@ -46,8 +46,9 @@ pnpm dev            # http://localhost:3000 → redirected to /login
 
 ## 3. Layout
 ```
-src/app/(auth)/login          magic link + Google
-src/app/auth/callback         code exchange
+src/app/(auth)/login          magic link + Google (popup → /auth/google)
+src/app/auth/callback         code exchange (magic link, fallback OAuth)
+src/app/auth/google           Google popup code → ID token → Supabase session
 src/app/(app)/*               authenticated pages (today, pipeline, companies, …)
 src/actions/*                 server actions: zod-parsed, user-scoped, audited
 src/lib/auth.ts               requireUser / withUser (Supabase SSR)
@@ -114,8 +115,11 @@ Vercel Hobby + Supabase Free + Gmail SMTP + Resend Free, all at no cost. AI stay
 3. **Google sign-in** (optional):
    - Google Cloud → Google Auth Platform → Branding: app name, support email, home page `https://<app>.vercel.app`, privacy policy `https://<app>.vercel.app/privacy` (a public page in this app), authorized domains `<ref>.supabase.co` and `<app>.vercel.app`.
    - Audience: External. Either stay in Testing and list each allowed Google account as a test user, or Publish (needs the home page and privacy links; basic scopes need no review).
-   - Clients → Web application: JavaScript origin `https://<app>.vercel.app`, redirect URI `https://<ref>.supabase.co/auth/v1/callback`.
-   - Supabase Auth → Providers → Google: paste the client ID and secret. Set `NEXT_PUBLIC_AUTH_GOOGLE=1` in Vercel and redeploy (it is read at build time).
+   - Clients → Web application: JavaScript origin `https://<app>.vercel.app` (all the popup flow needs); redirect URI `https://<ref>.supabase.co/auth/v1/callback` (only for the fallback redirect flow).
+   - Supabase Auth → Providers → Google: paste the client ID and secret (Supabase checks the ID token's audience against this client ID).
+   - Vercel: `NEXT_PUBLIC_AUTH_GOOGLE=1`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID=<client id>`, `GOOGLE_CLIENT_SECRET=<client secret>` (sensitive), then redeploy (`NEXT_PUBLIC_*` values are read at build time).
+   - How it works: the login page's own button opens Google's popup (GIS code client, `src/components/auth/GoogleSignInButton.tsx`); the one-time code is posted to `/auth/google`, which checks the request `Origin`, exchanges the code for Google's ID token with the client secret, and calls `signInWithIdToken`. Google never redirects through `<ref>.supabase.co`, so its account chooser says "to continue to <app>.vercel.app". Without `NEXT_PUBLIC_GOOGLE_CLIENT_ID` the page falls back to the standard Supabase redirect, which names the Supabase domain.
+   - To show the name "Job Journey" rather than the address, complete brand verification in Google Cloud → Verification Center (verify site ownership in Search Console and drop the `supabase.co` authorized domain first).
 4. **Schema and bucket** from your machine (command-line values win over `.env.local`, so the local stack is untouched):
    ```bash
    DIRECT_DATABASE_URL='<session pooler, 5432>' pnpm db:migrate
@@ -124,7 +128,7 @@ Vercel Hobby + Supabase Free + Gmail SMTP + Resend Free, all at no cost. AI stay
    Newly reset database passwords can take a minute to reach the pooler; retry if authentication fails straight after a reset.
 5. **Resend** (daily digest): create a sending-only API key. Without a verified domain it sends only from `onboarding@resend.dev` to your Resend signup email, so the digest reaches that one account.
 6. **Vercel**: import the repo (install the Vercel GitHub app and connect it under Project → Settings → Git so pushes to `main` deploy). Environment variables:
-   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL` (transaction pooler, 6543), `NEXT_PUBLIC_APP_URL`, `CRON_SECRET` (`openssl rand -hex 32`), `RESEND_API_KEY`, `DIGEST_FROM_EMAIL="Job Journey <onboarding@resend.dev>"`, and `NEXT_PUBLIC_AUTH_GOOGLE=1` if Google is on. `.vercelignore` keeps local `.env*` files out of CLI uploads.
+   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL` (transaction pooler, 6543), `NEXT_PUBLIC_APP_URL`, `CRON_SECRET` (`openssl rand -hex 32`), `RESEND_API_KEY`, `DIGEST_FROM_EMAIL="Job Journey <onboarding@resend.dev>"`, and, if Google is on, `NEXT_PUBLIC_AUTH_GOOGLE=1`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`. `.vercelignore` keeps local `.env*` files out of CLI uploads.
 7. **GitHub Actions**: Settings → Secrets and variables → Actions → **Repository secrets** (not environment secrets, which this workflow cannot read): `APP_URL` = `https://<app>.vercel.app`, `CRON_SECRET` = the Vercel value. Run the `digest` workflow once from the Actions tab; a failed run names the missing or wrong secret.
 8. **Sign-ups**: this deployment leaves them open so several of your own addresses can join. To close them, turn off Supabase Auth → "Allow new users to sign up" (existing accounts keep working).
 
