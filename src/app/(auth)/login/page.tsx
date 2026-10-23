@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { Compass } from "lucide-react";
 import { LoginForm } from "./login-form";
 import { AuroraBackground } from "@/components/shell/AuroraBackground";
@@ -25,6 +26,11 @@ export default function LoginPage() {
         <Suspense>
           <LoginForm local={local} googleEnabled={googleEnabled} />
         </Suspense>
+        <p className="text-center text-[13px] text-muted-foreground">
+          <Link className="underline underline-offset-2" href="/privacy">
+            Privacy policy
+          </Link>
+        </p>
       </div>
     </main>
   );
