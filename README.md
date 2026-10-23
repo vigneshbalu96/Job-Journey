@@ -96,25 +96,40 @@ Settings has a weekly applications target. Today shows a ring (applications move
 - A screenshot sweep for visual review: `SHOTS_DIR=/tmp/shots SHOTS_EMAIL=you@example.com pnpm exec playwright test screenshots`.
 
 ## 5. Production notes
-- **Email templates**: the default Supabase templates use `{{ .ConfirmationURL }}`, which goes through `/auth/callback` (PKCE, same browser). For links that must work on another device, point the template at `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink`.
+- **Email templates**: the default Supabase templates use `{{ .ConfirmationURL }}`, which goes through `/auth/callback` (PKCE, same browser). For links that must work on another device, point the template at `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink`. On the free plan, editing templates requires a custom SMTP server (see §6).
 - **Storage**: run `pnpm storage:setup` once per project to create the private `documents` bucket.
 - **Cron**: Vercel Hobby only allows daily crons, so `.github/workflows/digest.yml` calls `/api/cron/digest` hourly. Set `CRON_SECRET` in Vercel and the same value plus `APP_URL` as GitHub repo secrets. The route picks users whose local hour has reached their digest hour and never sends twice for one day, so a late run still delivers. The hourly hit also keeps a free Supabase project from pausing.
 - **AI**: set `ANTHROPIC_API_KEY`. Default model is `claude-sonnet-5-5`; Opus is selectable per run. Every call is logged in `ai_runs` with cost; identical inputs are served from that log. `AI_DAILY_RUN_CAP` (default 60) bounds spend.
 - **Clipper**: the bookmarklet is on the Clip page. It sends the rendered page text, which is the only reliable path for LinkedIn/Workday.
 
 ## 6. Free deploy (personal use)
-Vercel Hobby + Supabase Free + Resend Free; AI stays off until `ANTHROPIC_API_KEY` is set.
+Vercel Hobby + Supabase Free + Gmail SMTP + Resend Free, all at no cost. AI stays off until `ANTHROPIC_API_KEY` is set (the only paid part).
 
-1. **Supabase**: new project (this one is in Sydney, ap-southeast-2). Auth → URL configuration: Site URL `https://<app>.vercel.app`, redirect URLs `…/auth/callback` and `…/auth/confirm`. Auth → Email templates → Magic Link: link to `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink`. The built-in mailer only sends to project team members, so sign in with your Supabase account email.
-2. **Schema and bucket** from your machine (command-line values win over `.env.local`):
+1. **Supabase**: create a project and keep Vercel's function region next to it (this one is in Sydney, ap-southeast-2, so `vercel.json` uses `syd1`). Pick a database password without `@ : / #` so it drops into connection strings unescaped.
+   - Auth → URL configuration: Site URL `https://<app>.vercel.app`; redirect URLs `…/auth/callback` and `…/auth/confirm`.
+2. **Sign-in email via Gmail SMTP**: the built-in mailer only reaches project team members, is rate-limited, and on the free plan blocks template edits. With a custom SMTP server all three go away.
+   - Google Account → 2-Step Verification on → App passwords → create one (16 characters).
+   - Auth → SMTP settings: host `smtp.gmail.com`, port `587`, user and sender = your Gmail, password = the app password, sender name `Job Journey`. Raise the email rate limit to 30/hour.
+   - Auth → Email templates → Magic Link: link to `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink` (works on any device, unlike the default `{{ .ConfirmationURL }}`, which needs the same browser). Confirm signup: same with `type=email`.
+3. **Google sign-in** (optional):
+   - Google Cloud → Google Auth Platform → Branding: app name, support email, home page `https://<app>.vercel.app`, privacy policy `https://<app>.vercel.app/privacy` (a public page in this app), authorized domains `<ref>.supabase.co` and `<app>.vercel.app`.
+   - Audience: External. Either stay in Testing and list each allowed Google account as a test user, or Publish (needs the home page and privacy links; basic scopes need no review).
+   - Clients → Web application: JavaScript origin `https://<app>.vercel.app`, redirect URI `https://<ref>.supabase.co/auth/v1/callback`.
+   - Supabase Auth → Providers → Google: paste the client ID and secret. Set `NEXT_PUBLIC_AUTH_GOOGLE=1` in Vercel and redeploy (it is read at build time).
+4. **Schema and bucket** from your machine (command-line values win over `.env.local`, so the local stack is untouched):
    ```bash
    DIRECT_DATABASE_URL='<session pooler, 5432>' pnpm db:migrate
    NEXT_PUBLIC_SUPABASE_URL='https://<ref>.supabase.co' SUPABASE_SERVICE_ROLE_KEY='<service role>' pnpm storage:setup
    ```
-3. **Resend**: create an API key. Without a domain it sends only from `onboarding@resend.dev` to your Resend signup email.
-4. **Vercel**: import the repo and set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL` (transaction pooler, 6543), `NEXT_PUBLIC_APP_URL`, `CRON_SECRET` (`openssl rand -hex 32`), `RESEND_API_KEY`, `DIGEST_FROM_EMAIL="Job Journey <onboarding@resend.dev>"`. Functions run in `syd1` (see `vercel.json`); keep it next to the Supabase region.
-5. **GitHub**: repo secrets `APP_URL` and `CRON_SECRET`; run the `digest` workflow once from the Actions tab.
-6. Sign in once, then turn off Supabase Auth → "Allow new users to sign up".
+   Newly reset database passwords can take a minute to reach the pooler; retry if authentication fails straight after a reset.
+5. **Resend** (daily digest): create a sending-only API key. Without a verified domain it sends only from `onboarding@resend.dev` to your Resend signup email, so the digest reaches that one account.
+6. **Vercel**: import the repo (install the Vercel GitHub app and connect it under Project → Settings → Git so pushes to `main` deploy). Environment variables:
+   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL` (transaction pooler, 6543), `NEXT_PUBLIC_APP_URL`, `CRON_SECRET` (`openssl rand -hex 32`), `RESEND_API_KEY`, `DIGEST_FROM_EMAIL="Job Journey <onboarding@resend.dev>"`, and `NEXT_PUBLIC_AUTH_GOOGLE=1` if Google is on. `.vercelignore` keeps local `.env*` files out of CLI uploads.
+7. **GitHub Actions**: Settings → Secrets and variables → Actions → **Repository secrets** (not environment secrets, which this workflow cannot read): `APP_URL` = `https://<app>.vercel.app`, `CRON_SECRET` = the Vercel value. Run the `digest` workflow once from the Actions tab; a failed run names the missing or wrong secret.
+8. **Sign-ups**: this deployment leaves them open so several of your own addresses can join. To close them, turn off Supabase Auth → "Allow new users to sign up" (existing accounts keep working).
+
+### Install on a phone
+The app ships a web manifest (`src/app/manifest.ts`) and icons (`public/icons`, drawn from `public/icons/icon.svg`), so it installs like an app at no cost, with no Play Store needed. Android Chrome: ⋮ → Install app. iPhone Safari: Share → Add to Home Screen. It opens full screen on Today; it still needs a connection (no offline mode) and reminders arrive by email, not push.
 
 ## 7. Phases
 See `docs/PLAN.md` for the full plan. All eight phases are implemented:
@@ -127,4 +142,4 @@ See `docs/PLAN.md` for the full plan. All eight phases are implemented:
 - [x] Phase 6: AI assist (JD parse, fit score, resume bullets, cover letter, likely questions, follow-up email)
 - [x] Phase 7: offers with side-by-side comparison and accept/decline flow
 
-Not yet verified against real services: Google OAuth, Resend delivery, and the Anthropic calls (all need keys you hold).
+Running against real services: Supabase Auth with Gmail SMTP (magic link), Google OAuth, Vercel, GitHub Actions cron and Resend. The Anthropic calls are still unverified because no API key is configured.
