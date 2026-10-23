@@ -18,4 +18,12 @@ jobs:
           APP_URL: ${{ secrets.APP_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -fsS --max-time 90 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/digest"
+          # Tolerate stray whitespace, quotes and a trailing slash in the secrets.
+          url="$(printf '%s' "$APP_URL" | tr -d '[:space:]"')"; url="${url%/}"
+          secret="$(printf '%s' "$CRON_SECRET" | tr -d '[:space:]"')"
+          [ -n "$url" ] || { echo "::error::APP_URL secret is missing or empty"; exit 1; }
+          [ -n "$secret" ] || { echo "::error::CRON_SECRET secret is missing or empty"; exit 1; }
+          case "$url" in https://*) ;; *) echo "::error::APP_URL must start with https:// (got ${#url} chars)"; exit 1 ;; esac
+          code=$(curl -sS -o body.txt -w '%{http_code}' --max-time 90 -H "Authorization: Bearer $secret" "$url/api/cron/digest") || { echo "::error::could not reach $url"; exit 1; }
+          cat body.txt; echo
+          [ "$code" = 200 ] || { echo "::error::digest endpoint returned HTTP $code (401 means CRON_SECRET does not match Vercel)"; exit 1; }
