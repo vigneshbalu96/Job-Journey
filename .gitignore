@@ -51,3 +51,6 @@ next-env.d.ts
 *sshkey*
 id_rsa*
 id_ed25519*
+
+# exported chat transcripts
+*.odx
