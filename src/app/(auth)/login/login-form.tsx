@@ -62,7 +62,9 @@ export function LoginForm({ local, googleEnabled }: { local: boolean; googleEnab
         {googleEnabled && (
           <>
             {GOOGLE_CLIENT_ID ? (
-              <GoogleSignInButton clientId={GOOGLE_CLIENT_ID} next={next} onError={setError} />
+              <GoogleSignInButton clientId={GOOGLE_CLIENT_ID} next={next} onError={setError}>
+                <GoogleMark /> Continue with Google
+              </GoogleSignInButton>
             ) : (
               <Button type="button" variant="outline" className="w-full" onClick={signInWithGoogle} disabled={pending}>
                 <GoogleMark /> Continue with Google

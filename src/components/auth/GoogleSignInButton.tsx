@@ -1,99 +1,90 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState, type ReactNode } from "react";
 import Script from "next/script";
-import { useTheme } from "next-themes";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
 
-// Minimal typing for Google Identity Services (https://accounts.google.com/gsi/client).
-type GoogleId = {
-  initialize(config: {
-    client_id: string;
-    callback: (response: { credential: string }) => void;
-    nonce: string;
-    use_fedcm_for_button?: boolean;
-  }): void;
-  renderButton(parent: HTMLElement, options: Record<string, string | number>): void;
-};
+// Minimal typing for the Google Identity Services code client.
+type CodeClient = { requestCode(): void };
 declare global {
   interface Window {
-    google?: { accounts: { id: GoogleId } };
+    google?: {
+      accounts: {
+        oauth2: {
+          initCodeClient(config: {
+            client_id: string;
+            scope: string;
+            ux_mode: "popup";
+            callback: (response: { code?: string; error?: string }) => void;
+            error_callback?: (error: { type: string }) => void;
+          }): CodeClient;
+        };
+      };
+    };
   }
 }
 
-async function sha256Hex(value: string) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 /**
- * Google's own button. The browser receives the Google ID token and hands it
- * to Supabase with signInWithIdToken, so Google never redirects through
- * <ref>.supabase.co and its account chooser names this site instead.
- * Supabase checks the token's audience against the client ID configured on
- * its Google provider, and the hashed nonce against the raw one we send.
+ * Our own button driving Google's popup (GIS code client). The code goes to
+ * /auth/google, which signs in with Supabase server-side. Google never
+ * redirects through <ref>.supabase.co, so its account chooser names this site,
+ * and the button keeps the app's styling (Google's rendered button cannot).
  */
 export function GoogleSignInButton({
   clientId,
   next,
   onError,
+  children,
 }: {
   clientId: string;
   next: string;
   onError: (message: string | null) => void;
+  children: ReactNode;
 }) {
-  const container = useRef<HTMLDivElement>(null);
-  const [scriptReady, setScriptReady] = useState(false);
-  const { resolvedTheme } = useTheme();
+  const [ready, setReady] = useState(false);
+  const [pending, setPending] = useState(false);
 
-  useEffect(() => {
-    const el = container.current;
-    const gsi = window.google?.accounts.id;
-    if (!scriptReady || !el || !gsi) return;
-    let cancelled = false;
-
-    (async () => {
-      const rawNonce = crypto.randomUUID();
-      const hashedNonce = await sha256Hex(rawNonce);
-      if (cancelled) return;
-      gsi.initialize({
+  const signIn = () => {
+    const oauth2 = window.google?.accounts.oauth2;
+    if (!oauth2) return onError("Google sign-in is still loading. Try again in a moment.");
+    onError(null);
+    oauth2
+      .initCodeClient({
         client_id: clientId,
-        nonce: hashedNonce,
-        use_fedcm_for_button: true,
-        callback: async ({ credential }) => {
-          onError(null);
-          const supabase = createSupabaseBrowserClient();
-          const { error } = await supabase.auth.signInWithIdToken({ provider: "google", token: credential, nonce: rawNonce });
-          if (error) onError(error.message);
-          else window.location.assign(next);
+        scope: "openid email profile",
+        ux_mode: "popup",
+        callback: async ({ code, error }) => {
+          if (!code) return onError(error === "access_denied" ? null : "Google sign-in was cancelled.");
+          setPending(true);
+          const res = await fetch("/auth/google", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code }),
+          });
+          if (res.ok) return window.location.assign(next);
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          setPending(false);
+          onError(data.error ?? "Google sign-in failed. Please try again.");
         },
-      });
-      el.replaceChildren();
-      gsi.renderButton(el, {
-        type: "standard",
-        theme: resolvedTheme === "dark" ? "filled_black" : "outline",
-        size: "large",
-        text: "continue_with",
-        shape: "rectangular",
-        logo_alignment: "center",
-        width: Math.min(400, Math.max(200, Math.floor(el.clientWidth))),
-      });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [scriptReady, clientId, next, onError, resolvedTheme]);
+        // Popup closed or blocked: no error to show beyond leaving the page as it was.
+        error_callback: ({ type }) => {
+          if (type === "popup_failed_to_open") onError("Allow pop-ups for this site to sign in with Google.");
+        },
+      })
+      .requestCode();
+  };
 
   return (
     <>
       <Script
         src="https://accounts.google.com/gsi/client"
         strategy="afterInteractive"
-        onReady={() => setScriptReady(true)}
+        onReady={() => setReady(true)}
         onError={() => onError("Could not load Google sign-in. Use the email link instead.")}
       />
-      <div ref={container} className="flex min-h-10 w-full justify-center" />
+      <Button type="button" variant="outline" className="w-full" onClick={signIn} disabled={!ready || pending}>
+        {children}
+      </Button>
     </>
   );
 }
