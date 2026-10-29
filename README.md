@@ -146,4 +146,4 @@ See `docs/PLAN.md` for the full plan. All eight phases are implemented:
 - [x] Phase 6: AI assist (JD parse, fit score, resume bullets, cover letter, likely questions, follow-up email)
 - [x] Phase 7: offers with side-by-side comparison and accept/decline flow
 
-Running against real services: Supabase Auth with Gmail SMTP (magic link), Google OAuth, Vercel, GitHub Actions cron and Resend. The Anthropic calls are still unverified because no API key is configured.
+Running against real services: Supabase Auth with Gmail SMTP (magic link), Google OAuth, Vercel, GitHub Actions cron and Resend. AI assist is verified live on Groq's free tier (`pnpm ai:smoke` runs every task); the Anthropic path is still unverified because no Anthropic key is configured.
