@@ -1,11 +1,11 @@
 import "server-only";
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
-import { modelProvider, runAi, type AiModel } from "@/lib/ai/client";
+import { runAi, type AiModel } from "@/lib/ai/client";
 import { clipExtractSchema, SYSTEM, type ClipExtract } from "@/lib/ai/tasks";
 
 const MAX_CHARS = 40_000;
-const GROQ_MAX_CHARS = 10_000;
+const PROMPT_MAX_CHARS = 10_000;
 
 /** Server fetch + Readability. Returns null when the page is an empty JS shell. */
 export async function fetchPageText(url: string): Promise<{ text: string; title: string | null } | null> {
@@ -78,8 +78,7 @@ export async function extractJob(
   input: { url?: string | null; text: string; model?: AiModel },
 ): Promise<{ draft: ClipExtract; cached: boolean; costUsd: number }> {
   // Groq's free tier allows 8K tokens a minute, and the JD has to come back out in jdText too.
-  const maxChars = modelProvider(input.model) === "groq" ? GROQ_MAX_CHARS : MAX_CHARS;
-  const prompt = `${input.url ? `URL: ${input.url}\n\n` : ""}## Page text\n${input.text.slice(0, maxChars)}`;
+  const prompt = `${input.url ? `URL: ${input.url}\n\n` : ""}## Page text\n${input.text.slice(0, PROMPT_MAX_CHARS)}`;
   const r = await runAi({
     userId,
     task: "clip_extract",

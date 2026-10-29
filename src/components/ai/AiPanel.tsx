@@ -64,7 +64,7 @@ export function AiPanel({ applicationId, hasJd, hasProfile, companyName, models,
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          {hasProfile ? "Every run is logged with its cost. Repeated identical runs are served from cache." : "Add your master profile in Settings to unlock scoring and writing. Parsing works without it."}
+          {hasProfile ? "Runs on Groq's free tier. Every run is logged, and repeated identical runs are served from cache." : "Add your master profile in Settings to unlock scoring and writing. Parsing works without it."}
         </p>
         {models.length > 1 && (
           <div className="w-64">
@@ -93,7 +93,7 @@ export function AiPanel({ applicationId, hasJd, hasProfile, companyName, models,
                   {results[task] && (
                     <>
                       <Button size="sm" variant="ghost" onClick={() => run(task, true)} disabled={disabled} title="Ignore cache"><RefreshCw className="h-4 w-4" /></Button>
-                      <span className="text-[11px] text-muted-foreground">{results[task]!.cached ? "cached" : results[task]!.costUsd === 0 ? "free" : `$${results[task]!.costUsd.toFixed(4)}`}</span>
+                      <span className="text-[11px] text-muted-foreground">{results[task]!.cached ? "cached" : "free"}</span>
                     </>
                   )}
                 </div>

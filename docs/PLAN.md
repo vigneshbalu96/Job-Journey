@@ -15,7 +15,7 @@ Standing rules carried over from the user's other apps: **all deletes are soft**
 - New repo at `/home/vignesh/Projects/job-journey`, package manager **pnpm** (9.15 installed; Node 22.12).
 - A **new Supabase project** (not Nestara's) and a new Vercel project under whichever account you choose. Vercel + Supabase CLIs get installed in Phase 0.
 - Email digest via **Resend** from a subdomain of a domain you control (e.g. `mail.cnde.in`); domain verification is a manual step for you.
-- AI calls use the Anthropic API, default model `claude-sonnet-5-5`, with `claude-opus-5-5` opt-in per run.
+- AI calls use Groq's free tier, default model `openai/gpt-oss-120b`, with `openai/gpt-oss-20b` selectable per run.
 
 ## What to reuse from Nestara (`/home/vignesh/Projects/nestara-pg/Booking-Application`)
 
@@ -24,7 +24,7 @@ Copy as-is or near-as-is:
 - `src/lib/supabase-storage.ts` — Storage REST upload with service-role key, idempotent private-bucket creation.
 - `components.json` (new-york, neutral, CSS vars, lucide) and the `src/components/ui/*` shadcn primitives; `src/components/portal/{EmptyState,PageError,PageSkeleton,PortalPageHeader,TablePagination}.tsx` and the `PortalShell` sidebar layout (without its client-side auth gate).
 - The `logAudit(dbOrTx, input)` idea from `src/lib/audit-log.ts` (accepting db or a transaction), upgraded to `jsonb` + `timestamptz`.
-- `src/lib/utils.ts`, the Anthropic SDK call shape from `src/lib/id-verification-ai.ts`.
+- `src/lib/utils.ts`.
 
 Do fresh (Nestara's versions are not suitable): auth (hand-rolled HMAC cookies, no middleware), migrations (hand-written scripts), validation (zod installed but unused), user scoping (one route leaks other users' data), lint/test tooling (none).
 
@@ -64,7 +64,7 @@ The journey timeline is a query unioning stage events, interactions, completed t
 - One zod schema per entity in `src/schemas/*.ts`, shared by react-hook-form resolvers, server-action entry parsing, and AI structured outputs. Actions return `{ ok, data } | { ok:false, fieldErrors }`.
 - `transitionStage()` is the single path for stage changes: validates allowed moves, writes a stage event, updates `stageEnteredAt`, auto-creates a follow-up `task` (days-per-stage configurable in settings). Accepting an offer closes all other open applications as `withdrawn` with events.
 - RLS enabled with `user_id = auth.uid()` as defense-in-depth (matters for direct Storage access); Drizzle connects via service role and relies on app scoping. A vitest test greps `src/actions` and `src/app/api` for raw `db.select(`/`db.delete(` outside `repo.ts` and fails.
-- AI (`src/lib/ai/client.ts`): structured outputs via `messages.parse()` + `zodOutputFormat()`; master profile + frozen system prompt first with `cache_control`; `effort: "low"` for extraction; per-task `max_tokens` caps; dedupe on `inputHash`; log every run with cost; show monthly spend in settings.
+- AI (`src/lib/ai/client.ts`): Groq strict JSON-schema output validated by zod; master profile + frozen system prompt first; `reasoning_effort: "low"` for extraction; completion budget sized to the free tier's 8K tokens a minute; dedupe on `inputHash`; log every run; show monthly runs in settings.
 
 ### Route map
 ```
@@ -80,7 +80,7 @@ app/(app)/documents                  resume / cover-letter versions
 app/(app)/offers                     side-by-side comparison
 app/(app)/journey                    timeline + metrics (funnel by source/role, weekly activity, time-in-stage, response rate)
 app/(app)/clip                       paste URL / bookmarklet target → prefilled role form
-app/(app)/settings                   profile, master profile, digest prefs, AI spend
+app/(app)/settings                   profile, master profile, digest prefs, AI usage
 api/cron/digest/route.ts             hourly Vercel Cron, CRON_SECRET; picks users whose local hour == digestHour
 api/clip/route.ts                    POST {url | text}: fetch + readability + LLM extract
 api/clip/bookmarklet/route.ts        serves bookmarklet JS (sends rendered innerText to /clip)
@@ -107,7 +107,7 @@ Total ≈ 15–16 developer days. Deploy to Vercel from Phase 0 so the public UR
 - **JS-rendered job pages** (LinkedIn, Workday): bookmarklet with rendered text is the primary path; server fetch is a fallback; paste-JD is the last resort. No headless browser in v1.
 - **Email deliverability**: SPF/DKIM on a Resend subdomain; idempotent sends; hourly cron matched to user timezone.
 - **Scoping**: app-level scoping is the enforced layer; RLS is backup; upload paths are prefixed `{userId}/` and checked on sign.
-- **AI cost**: Sonnet default, prompt caching, dedupe, caps, visible monthly spend.
+- **AI cost**: free tier only (Groq), dedupe, daily per-user cap, visible monthly run count.
 - **Audit volume**: kanban drags create many updates; store changed columns only.
 
 ## Verification
@@ -117,9 +117,9 @@ Total ≈ 15–16 developer days. Deploy to Vercel from Phase 0 so the public UR
 - **Phase 3**: seed script with ~30 applications; compare funnel totals against a SQL count.
 - **Phase 4**: set a follow-up to yesterday → appears in Today; `curl -H "Authorization: Bearer $CRON_SECRET" /api/cron/digest` → email arrives, second call is a no-op.
 - **Phase 5**: clip a static careers page, a Greenhouse page, and LinkedIn via bookmarklet; check fields + `ai_runs` row.
-- **Phase 6**: run each AI task once; second fit-score shows non-zero cache-read tokens; `costUsd` recorded.
+- **Phase 6**: run each AI task once; a repeat fit-score is served from the `ai_runs` cache.
 - **Phase 7**: two offers, compare, accept one → others closed/withdrawn with events.
-- **Automated**: vitest for `transitionStage` rules, `mutate`/`softDelete`/`audit` transaction behaviour (pglite), zod schemas, digest timezone selection, clipper extraction on fixture HTML with mocked Anthropic client, scoped-query grep test. Playwright smoke: login via test magic link → create application → drag to applied → history entry → soft delete. Run on Vercel preview in CI.
+- **Automated**: vitest for `transitionStage` rules, `mutate`/`softDelete`/`audit` transaction behaviour (pglite), zod schemas, digest timezone selection, clipper extraction on fixture HTML with a mocked AI client, scoped-query grep test. Playwright smoke: login via test magic link → create application → drag to applied → history entry → soft delete. Run on Vercel preview in CI.
 
 ## Critical files (to create)
 - `src/db/schema.ts`, `src/db/index.ts` (copied), `drizzle.config.ts`

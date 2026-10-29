@@ -11,7 +11,7 @@ export default async function SettingsPage() {
   const [profile, spend] = await Promise.all([getProfile(userId), monthlyAiSpend(userId)]);
   return (
     <>
-      <PageHeader icon={Settings} title="Settings" subtitle={`Signed in as ${email} · AI this month: ${spend.runs} runs, $${spend.usd.toFixed(2)}`} />
+      <PageHeader icon={Settings} title="Settings" subtitle={`Signed in as ${email} · AI this month: ${spend.runs} runs (free tier)`} />
       <ProfileForm profile={profile} />
     </>
   );

@@ -54,7 +54,7 @@ export default function PrivacyPage() {
           <p>
             Data lives in a Supabase database and private file storage, and the app is hosted on Vercel. Emails are
             sent through Gmail and Resend. If the optional AI assistant is switched on, the text you choose to analyse
-            is sent to Anthropic to generate the result. Each account can only see its own data.
+            is sent to Groq to generate the result. Each account can only see its own data.
           </p>
         </section>
 
