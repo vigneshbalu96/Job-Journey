@@ -20,7 +20,8 @@
     "mail:local": "tsx scripts/local-smtp.ts",
     "supabase:start": "dotenv -e .env.local -- supabase start -x realtime,imgproxy,studio,edge-runtime,logflare,vector,postgres-meta,supavisor",
     "supabase:restart": "supabase stop && pnpm supabase:start",
-    "supabase:stop": "supabase stop"
+    "supabase:stop": "supabase stop",
+    "ai:smoke": "tsx -r tsconfig-paths/register scripts/groq-smoke.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

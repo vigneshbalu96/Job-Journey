@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Briefcase, ExternalLink } from "lucide-react";
 import { requireUser, getProfile } from "@/lib/auth";
 import { AiPanel } from "@/components/ai/AiPanel";
+import { availableModels, defaultModel } from "@/lib/ai/client";
 import { getApplicationDetail, listCompanies } from "@/lib/queries/applications";
 import { listNotes } from "@/lib/queries/notes";
 import { listContacts } from "@/lib/queries/contacts";
@@ -194,7 +195,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
         </TabsContent>
 
         <TabsContent value="ai" className="mt-4">
-          <AiPanel applicationId={app.id} hasJd={!!role.jdText?.trim()} hasProfile={!!profile.masterProfile?.trim()} companyName={company.name} />
+          <AiPanel applicationId={app.id} hasJd={!!role.jdText?.trim()} hasProfile={!!profile.masterProfile?.trim()} companyName={company.name} models={availableModels()} defaultModel={defaultModel()} />
         </TabsContent>
       </Tabs>
     </>

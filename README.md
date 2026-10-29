@@ -2,7 +2,7 @@
 
 A multi-user command centre for a job search: pipeline kanban with full stage history, companies and contacts, prep notes and a question bank, a journey timeline with funnel metrics, resume versions, follow-up reminders with a daily digest, offer comparison, a job clipper, and AI assistance for the repetitive parts.
 
-Stack: Next.js 15 (App Router), TypeScript, Drizzle ORM on Supabase Postgres, Supabase Auth, Tailwind v4 + shadcn/ui, Vercel + GitHub Actions cron, Resend, Anthropic API.
+Stack: Next.js 15 (App Router), TypeScript, Drizzle ORM on Supabase Postgres, Supabase Auth, Tailwind v4 + shadcn/ui, Vercel + GitHub Actions cron, Resend, Groq (free tier) or Anthropic API for AI.
 
 Two rules hold everywhere: **deletes are soft** (`deleted_at`) and **every mutation writes an `audit_log` row**. Server actions go through `withUser()` and the helpers in `src/lib/repo.ts`; a unit test fails the build if a file selects from the database without `scoped()` or issues a hard `DELETE`.
 
@@ -100,11 +100,11 @@ Settings has a weekly applications target. Today shows a ring (applications move
 - **Email templates**: the default Supabase templates use `{{ .ConfirmationURL }}`, which goes through `/auth/callback` (PKCE, same browser). For links that must work on another device, point the template at `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink`. On the free plan, editing templates requires a custom SMTP server (see §6).
 - **Storage**: run `pnpm storage:setup` once per project to create the private `documents` bucket.
 - **Cron**: Vercel Hobby only allows daily crons, so `.github/workflows/digest.yml` calls `/api/cron/digest` hourly. Set `CRON_SECRET` in Vercel and the same value plus `APP_URL` as GitHub repo secrets. The route picks users whose local hour has reached their digest hour and never sends twice for one day, so a late run still delivers. The hourly hit also keeps a free Supabase project from pausing.
-- **AI**: set `ANTHROPIC_API_KEY`. Default model is `claude-sonnet-5-5`; Opus is selectable per run. Every call is logged in `ai_runs` with cost; identical inputs are served from that log. `AI_DAILY_RUN_CAP` (default 60) bounds spend.
+- **AI**: set `GROQ_API_KEY` (free tier, default model `openai/gpt-oss-120b`, `openai/gpt-oss-20b` also selectable) and/or `ANTHROPIC_API_KEY` (`claude-sonnet-5-5`, Opus selectable). Only models whose key is set appear in the picker; `AI_DEFAULT_MODEL` overrides the default. Groq's free tier allows roughly 30 runs a minute, 1,000 a day and 8K tokens a minute, so clipped pages are cut to 10K characters on Groq. Every call is logged in `ai_runs` with cost; identical inputs are served from that log. `AI_DAILY_RUN_CAP` (default 60) bounds spend.
 - **Clipper**: the bookmarklet is on the Clip page. It sends the rendered page text, which is the only reliable path for LinkedIn/Workday.
 
 ## 6. Free deploy (personal use)
-Vercel Hobby + Supabase Free + Gmail SMTP + Resend Free, all at no cost. AI stays off until `ANTHROPIC_API_KEY` is set (the only paid part).
+Vercel Hobby + Supabase Free + Gmail SMTP + Resend Free, all at no cost. AI runs free on Groq once `GROQ_API_KEY` is set; Anthropic is the optional paid upgrade.
 
 1. **Supabase**: create a project and keep Vercel's function region next to it (this one is in Sydney, ap-southeast-2, so `vercel.json` uses `syd1`). Pick a database password without `@ : / #` so it drops into connection strings unescaped.
    - Auth → URL configuration: Site URL `https://<app>.vercel.app`; redirect URLs `…/auth/callback` and `…/auth/confirm`.

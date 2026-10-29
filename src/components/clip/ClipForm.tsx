@@ -103,7 +103,7 @@ export function ClipForm({ companies, initialUrl, initialText, bookmarklet }: { 
             <CardHeader>
               <CardTitle className="text-base">Extracted</CardTitle>
               <CardDescription>
-                {Math.round(draft.confidence * 100)}% confidence · {meta?.cached ? "from cache" : `$${meta?.costUsd.toFixed(4)}`} · via {meta?.source}
+                {Math.round(draft.confidence * 100)}% confidence · {meta?.cached ? "from cache" : meta?.costUsd === 0 ? "free" : `$${meta?.costUsd.toFixed(4)}`} · via {meta?.source}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">

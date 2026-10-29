@@ -11,10 +11,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { SelectField } from "@/components/forms/SelectField";
 import { ShineBorder } from "@/components/ui/shine-border";
 import { createNote, createQuestion } from "@/actions/notes";
+import type { AiModel as Model, ModelOption } from "@/lib/ai/models";
 import type { TaskOutput } from "@/lib/ai/tasks";
 
 type Task = "jd_parse" | "fit_score" | "resume_bullets" | "cover_letter" | "interview_questions" | "follow_up_email";
-type Model = "claude-sonnet-5-5" | "claude-opus-5-5";
 
 const TASKS: { task: Task; label: string; blurb: string }[] = [
   { task: "jd_parse", label: "Parse the JD", blurb: "Must-haves, nice-to-haves, red flags, ATS keywords." },
@@ -27,8 +27,8 @@ const TASKS: { task: Task; label: string; blurb: string }[] = [
 
 type Result = { output: unknown; cached: boolean; model: Model; costUsd: number };
 
-export function AiPanel({ applicationId, hasJd, hasProfile, companyName }: { applicationId: string; hasJd: boolean; hasProfile: boolean; companyName: string }) {
-  const [model, setModel] = useState<Model>("claude-sonnet-5-5");
+export function AiPanel({ applicationId, hasJd, hasProfile, companyName, models, defaultModel }: { applicationId: string; hasJd: boolean; hasProfile: boolean; companyName: string; models: ModelOption[]; defaultModel: Model }) {
+  const [model, setModel] = useState<Model>(defaultModel);
   const [results, setResults] = useState<Partial<Record<Task, Result>>>({});
   const [active, setActive] = useState<Task | null>(null);
   const [extra, setExtra] = useState("");
@@ -66,9 +66,11 @@ export function AiPanel({ applicationId, hasJd, hasProfile, companyName }: { app
         <p className="text-sm text-muted-foreground">
           {hasProfile ? "Every run is logged with its cost. Repeated identical runs are served from cache." : "Add your master profile in Settings to unlock scoring and writing. Parsing works without it."}
         </p>
-        <div className="w-56">
-          <SelectField value={model} onChange={(v) => setModel(v ?? "claude-sonnet-5-5")} options={[{ value: "claude-sonnet-5-5", label: "Sonnet 5.5 · fast, cheap" }, { value: "claude-opus-5-5", label: "Opus 5.5 · deeper" }]} />
-        </div>
+        {models.length > 1 && (
+          <div className="w-64">
+            <SelectField value={model} onChange={(v) => setModel(v ?? defaultModel)} options={models} />
+          </div>
+        )}
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -91,7 +93,7 @@ export function AiPanel({ applicationId, hasJd, hasProfile, companyName }: { app
                   {results[task] && (
                     <>
                       <Button size="sm" variant="ghost" onClick={() => run(task, true)} disabled={disabled} title="Ignore cache"><RefreshCw className="h-4 w-4" /></Button>
-                      <span className="text-[11px] text-muted-foreground">{results[task]!.cached ? "cached" : `$${results[task]!.costUsd.toFixed(4)}`}</span>
+                      <span className="text-[11px] text-muted-foreground">{results[task]!.cached ? "cached" : results[task]!.costUsd === 0 ? "free" : `$${results[task]!.costUsd.toFixed(4)}`}</span>
                     </>
                   )}
                 </div>

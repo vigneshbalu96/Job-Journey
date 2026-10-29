@@ -6,17 +6,27 @@ import { and, desc, eq, gte, sql } from "drizzle-orm";
 import type { ZodType } from "zod";
 import { db } from "@/db";
 import { aiRuns, type AiTask } from "@/db/schema";
+import { callGroq, GroqError, type ProviderResult } from "./groq";
+import { AI_MODEL_IDS, AI_MODELS, type AiModel, type AiProvider, type ModelOption } from "./models";
 
-export const AI_MODELS = {
-  "claude-sonnet-5-5": { label: "Sonnet 5.5 (default)", input: 2, output: 10, cacheRead: 0.2 },
-  "claude-opus-5-5": { label: "Opus 5.5 (deeper)", input: 4, output: 20, cacheRead: 0.2 },
-} as const;
-export type AiModel = keyof typeof AI_MODELS;
+export { AI_MODELS, type AiModel } from "./models";
 
-export const DEFAULT_MODEL: AiModel =
-  (process.env.AI_DEFAULT_MODEL as AiModel | undefined) && process.env.AI_DEFAULT_MODEL! in AI_MODELS
-    ? (process.env.AI_DEFAULT_MODEL as AiModel)
-    : "claude-sonnet-5-5";
+const PROVIDER_KEY: Record<AiProvider, string> = { groq: "GROQ_API_KEY", anthropic: "ANTHROPIC_API_KEY" };
+const isConfigured = (provider: AiProvider) => !!process.env[PROVIDER_KEY[provider]];
+
+/** Models whose provider has a key, in registry order (free Groq models first). */
+export function availableModels(): ModelOption[] {
+  return AI_MODEL_IDS.filter((m) => isConfigured(AI_MODELS[m].provider)).map((m) => ({ value: m, label: AI_MODELS[m].label }));
+}
+
+/** AI_DEFAULT_MODEL if its provider is configured, else the first configured model. */
+export function defaultModel(): AiModel {
+  const env = process.env.AI_DEFAULT_MODEL as AiModel | undefined;
+  if (env && env in AI_MODELS && isConfigured(AI_MODELS[env].provider)) return env;
+  return availableModels()[0]?.value ?? "openai/gpt-oss-120b";
+}
+
+export const modelProvider = (model?: AiModel) => AI_MODELS[model ?? defaultModel()].provider;
 
 const DAILY_RUN_CAP = Number(process.env.AI_DAILY_RUN_CAP ?? 60);
 
@@ -32,7 +42,6 @@ export class AiError extends Error {
 
 let client: Anthropic | null = null;
 function getClient() {
-  if (!process.env.ANTHROPIC_API_KEY) throw new AiError("AI is not configured. Add ANTHROPIC_API_KEY to the environment.", "not_configured");
   return (client ??= new Anthropic());
 }
 
@@ -63,12 +72,12 @@ export type RunInput<T> = {
 export type RunResult<T> = { output: T; runId: string; cached: boolean; model: AiModel; costUsd: number };
 
 /**
- * One function for every AI feature: structured output via messages.parse,
- * prompt caching on the stable prefix, dedupe on an input hash, a daily cap,
- * and an ai_runs row for every call (including refusals and errors).
+ * One function for every AI feature: structured output (Anthropic messages.parse
+ * or Groq strict JSON schema), dedupe on an input hash, a daily cap, and an
+ * ai_runs row for every call (including refusals and errors).
  */
 export async function runAi<T>(input: RunInput<T>): Promise<RunResult<T>> {
-  const model = input.model ?? DEFAULT_MODEL;
+  const model = input.model ?? defaultModel();
   const inputHash = createHash("sha256")
     .update([input.task, model, input.system, input.context ?? "", input.prompt].join("\u0000"))
     .digest("hex");
@@ -93,52 +102,63 @@ export async function runAi<T>(input: RunInput<T>): Promise<RunResult<T>> {
     .where(and(eq(aiRuns.userId, input.userId), gte(aiRuns.createdAt, since)));
   if (n >= DAILY_RUN_CAP) throw new AiError(`Daily AI limit reached (${DAILY_RUN_CAP} runs). Try again tomorrow.`, "cap_reached");
 
-  const anthropic = getClient();
+  const provider = AI_MODELS[model].provider;
+  if (!isConfigured(provider)) throw new AiError(`AI is not configured. Add ${PROVIDER_KEY[provider]} to the environment.`, "not_configured");
+
   const started = Date.now();
   const base = { userId: input.userId, task: input.task, model, applicationId: input.applicationId ?? null, roleId: input.roleId ?? null, inputHash };
 
   try {
-    const response = await anthropic.messages.parse({
-      model,
-      max_tokens: input.maxTokens ?? 8000,
-      system: [
-        { type: "text", text: input.system, cache_control: { type: "ephemeral" } },
-        ...(input.context ? [{ type: "text" as const, text: input.context, cache_control: { type: "ephemeral" as const } }] : []),
-      ],
-      messages: [{ role: "user", content: input.prompt }],
-      output_config: { format: zodOutputFormat(input.schema), effort: input.effort ?? "medium" },
-    });
-
-    const usage = {
-      input: response.usage.input_tokens,
-      output: response.usage.output_tokens,
-      cacheRead: response.usage.cache_read_input_tokens ?? 0,
-    };
-    const cost = costUsd(model, usage);
+    const call = provider === "groq" ? await callGroq(model, input) : await callAnthropic(model, input);
+    const cost = costUsd(model, call.usage);
     const durationMs = Date.now() - started;
+    const usageCols = { inputTokens: call.usage.input, outputTokens: call.usage.output, cacheReadTokens: call.usage.cacheRead, costUsd: cost.toFixed(6), durationMs };
 
-    if (response.stop_reason === "refusal") {
-      await db.insert(aiRuns).values({ ...base, status: "refused", inputTokens: usage.input, outputTokens: usage.output, cacheReadTokens: usage.cacheRead, costUsd: cost.toFixed(6), durationMs, error: response.stop_details?.explanation ?? "refused" });
+    if (call.refusal !== null) {
+      await db.insert(aiRuns).values({ ...base, status: "refused", ...usageCols, error: call.refusal || "refused" });
       throw new AiError("The model declined this request.", "refused");
     }
-    const output = response.parsed_output;
-    if (!output) {
-      await db.insert(aiRuns).values({ ...base, status: "error", inputTokens: usage.input, outputTokens: usage.output, cacheReadTokens: usage.cacheRead, costUsd: cost.toFixed(6), durationMs, error: `no parsed output (stop_reason=${response.stop_reason})` });
-      throw new AiError(response.stop_reason === "max_tokens" ? "The answer was too long. Try again with less input." : "The model returned nothing usable.", "no_output");
+    if (call.output == null) {
+      await db.insert(aiRuns).values({ ...base, status: "error", ...usageCols, error: `no parsed output (stop_reason=${call.stopReason})` });
+      throw new AiError(call.stopReason === "max_tokens" ? "The answer was too long. Try again with less input." : "The model returned nothing usable.", "no_output");
     }
+    const output = call.output;
     const [row] = await db
       .insert(aiRuns)
-      .values({ ...base, status: "ok", inputTokens: usage.input, outputTokens: usage.output, cacheReadTokens: usage.cacheRead, costUsd: cost.toFixed(6), durationMs, output: output as unknown as Record<string, unknown> })
+      .values({ ...base, status: "ok", ...usageCols, output: output as unknown as Record<string, unknown> })
       .returning({ id: aiRuns.id });
     return { output, runId: row.id, cached: false, model, costUsd: cost };
   } catch (e) {
     if (e instanceof AiError) throw e;
-    const message = e instanceof Anthropic.APIError ? `${e.status ?? ""} ${e.message}`.trim() : e instanceof Error ? e.message : String(e);
+    const message =
+      e instanceof Anthropic.APIError ? `${e.status ?? ""} ${e.message}`.trim() : e instanceof GroqError ? `${e.status} ${e.message}` : e instanceof Error ? e.message : String(e);
     await db.insert(aiRuns).values({ ...base, status: "error", durationMs: Date.now() - started, error: message });
-    if (e instanceof Anthropic.RateLimitError) throw new AiError("Rate limited by the AI provider. Wait a minute and retry.", "api");
-    if (e instanceof Anthropic.AuthenticationError) throw new AiError("The AI API key was rejected.", "not_configured");
+    if (e instanceof Anthropic.RateLimitError || (e instanceof GroqError && e.status === 429))
+      throw new AiError("Rate limited by the AI provider (Groq free tier allows about 30 runs a minute). Wait a minute and retry.", "api");
+    if (e instanceof GroqError && e.status === 413) throw new AiError("That input is too large for the free tier. Shorten the job description or profile and retry.", "api");
+    if (e instanceof Anthropic.AuthenticationError || (e instanceof GroqError && e.status === 401)) throw new AiError("The AI API key was rejected.", "not_configured");
     throw new AiError(`AI request failed: ${message}`, "api");
   }
+}
+
+
+async function callAnthropic<T>(model: AiModel, input: RunInput<T>): Promise<ProviderResult<T>> {
+  const response = await getClient().messages.parse({
+    model,
+    max_tokens: input.maxTokens ?? 8000,
+    system: [
+      { type: "text", text: input.system, cache_control: { type: "ephemeral" } },
+      ...(input.context ? [{ type: "text" as const, text: input.context, cache_control: { type: "ephemeral" as const } }] : []),
+    ],
+    messages: [{ role: "user", content: input.prompt }],
+    output_config: { format: zodOutputFormat(input.schema), effort: input.effort ?? "medium" },
+  });
+  return {
+    output: response.parsed_output ?? null,
+    refusal: response.stop_reason === "refusal" ? (response.stop_details?.explanation ?? "") : null,
+    stopReason: response.stop_reason,
+    usage: { input: response.usage.input_tokens, output: response.usage.output_tokens, cacheRead: response.usage.cache_read_input_tokens ?? 0 },
+  };
 }
 
 /** Spend for the settings page: this calendar month, in USD. */

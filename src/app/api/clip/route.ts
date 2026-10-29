@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser, UnauthorizedError } from "@/lib/auth";
 import { AiError } from "@/lib/ai/client";
+import { AI_MODEL_IDS } from "@/lib/ai/models";
 import { extractJob, fetchPageText } from "@/lib/clip/extract";
 
 export const maxDuration = 60;
@@ -10,7 +11,7 @@ const body = z.object({
   url: z.url().optional(),
   /** Rendered page text from the bookmarklet, or a pasted JD. */
   text: z.string().max(60_000).optional(),
-  model: z.enum(["claude-sonnet-5-5", "claude-opus-5-5"]).optional(),
+  model: z.enum(AI_MODEL_IDS).optional(),
 });
 
 /**

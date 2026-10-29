@@ -5,12 +5,13 @@ import { getProfile } from "@/lib/auth";
 import { getApplicationDetail } from "@/lib/queries/applications";
 import { updateRow } from "@/lib/repo";
 import { AiError, runAi, type AiModel } from "./client";
+import { AI_MODEL_IDS } from "./models";
 import { SYSTEM, TASK_SCHEMAS, type TaskName, type TaskOutput } from "./tasks";
 
 export const aiRequestSchema = z.object({
   task: z.enum(["jd_parse", "fit_score", "resume_bullets", "cover_letter", "interview_questions", "follow_up_email"]),
   applicationId: z.uuid(),
-  model: z.enum(["claude-sonnet-5-5", "claude-opus-5-5"]).optional(),
+  model: z.enum(AI_MODEL_IDS).optional(),
   force: z.boolean().optional(),
   /** For follow_up_email: what kind of note and any specifics. */
   extra: z.string().max(2000).optional(),
